@@ -39,7 +39,7 @@ resource "aws_cognito_user_pool" "order_system_pool" {
   }
 }
 
-# App Client
+# App Cliente
 resource "aws_cognito_user_pool_client" "client" {
   name         = "order-system-client"
   user_pool_id = aws_cognito_user_pool.order_system_pool.id

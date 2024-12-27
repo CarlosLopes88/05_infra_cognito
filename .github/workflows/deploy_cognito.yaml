@@ -1,0 +1,87 @@
+name: Deploy Cognito
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  TERRAFORM_VERSION: "1.10.1"
+
+jobs:
+  deploy-cognito:
+    runs-on: ubuntu-latest
+    outputs:
+      cognito_pool_id: ${{ steps.get-outputs.outputs.pool-id }}
+      cognito_client_id: ${{ steps.get-outputs.outputs.client-id }}
+      cognito_domain: ${{ steps.get-outputs.outputs.domain }}
+      cognito_user_pool_arn: ${{ steps.get-outputs.outputs.pool-arn }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        working-directory: ./cognito
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: ./cognito
+        run: |
+          terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: ./cognito
+        run: |
+          terraform apply -auto-approve tfplan
+
+          echo "Waiting for Cognito User Pool to be ready..."
+          attempt=1
+          max_attempts=10
+          until aws cognito-idp describe-user-pool --user-pool-id $(terraform output -raw cognito_pool_id 2>/dev/null || echo "") > /dev/null 2>&1 || [ $attempt -eq $max_attempts ]; do
+            echo "Attempt $attempt of $max_attempts..."
+            sleep 30
+            attempt=$((attempt + 1))
+          done
+
+      - name: Get Cognito Outputs
+        id: get-outputs
+        working-directory: ./cognito
+        run: |
+          {
+            echo "pool-id<<EOF"
+            terraform output -raw cognito_pool_id 2>/dev/null || echo ""
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          {
+            echo "client-id<<EOF"
+            terraform output -raw cognito_client_id 2>/dev/null || echo ""
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          {
+            echo "domain<<EOF"
+            terraform output -raw cognito_domain 2>/dev/null || echo ""
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          {
+            echo "pool-arn<<EOF"
+            terraform output -raw cognito_user_pool_arn 2>/dev/null || echo ""
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
